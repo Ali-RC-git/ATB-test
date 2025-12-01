@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Bell, Play, Square, TestTube, RotateCcw, Zap, Moon, X, ChevronDown } from 'lucide-react';
+import { Bell, Play, Square, TestTube, RotateCcw, Zap, Moon, X, ChevronDown, Send } from 'lucide-react';
+import { pushNotificationService } from './PushNotificationService';
 
 export default function NotificationManager() {
   const [isSupported, setIsSupported] = useState(false);
@@ -10,30 +11,52 @@ export default function NotificationManager() {
   const [backgroundMode, setBackgroundMode] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
   const notificationInterval = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    if ('Notification' in window && 'serviceWorker' in navigator) {
-      setIsSupported(true);
-      setPermission(Notification.permission);
+    const initNotifications = async () => {
+      // Check if notifications are supported (works on iOS, Mac, Android, Desktop)
+      if ('Notification' in window) {
+        setIsSupported(true);
+        setPermission(Notification.permission);
 
-      if ('periodicSync' in navigator) {
-        setBackgroundMode(true);
+        // Check for service worker support (required for background notifications)
+        if ('serviceWorker' in navigator) {
+          if ('periodicSync' in navigator) {
+            setBackgroundMode(true);
+          }
+
+          // Initialize push notification service
+          const initialized = await pushNotificationService.initialize();
+          if (initialized) {
+            const subscription = await pushNotificationService.getSubscription();
+            setPushEnabled(!!subscription || Notification.permission === 'granted');
+          }
+        } else {
+          // iOS/Mac Safari without service worker - basic notifications still work
+          setPushEnabled(Notification.permission === 'granted');
+        }
       }
-    }
+    };
+
+    initNotifications();
   }, []);
 
   const requestPermission = async () => {
     if (!isSupported) return;
 
     try {
-      const result = await Notification.requestPermission();
+      // Request notification permission
+      const result = await pushNotificationService.requestPermission();
       setPermission(result);
 
       if (result === 'granted') {
         setIsEnabled(true);
+        setPushEnabled(true);
         startNotifications();
 
+        // Enable background notifications
         if (backgroundMode && 'periodicSync' in navigator) {
           try {
             // @ts-ignore
@@ -42,6 +65,39 @@ export default function NotificationManager() {
             });
           } catch (error) {
             console.log('Periodic sync not supported:', error);
+          }
+        }
+
+        console.log('✅ Notifications enabled - will work even when app is closed');
+
+        // Ensure background notifications are started in service worker
+        // iOS needs shorter intervals and more frequent pings
+        if ('serviceWorker' in navigator) {
+          try {
+            const registration = await navigator.serviceWorker.ready;
+            const isIOSDevice = /iPhone|iPad|iPod/.test(navigator.userAgent);
+            const interval = isIOSDevice ? 30000 : 60000; // iOS: 30s, others: 60s
+
+            if (registration.active) {
+              registration.active.postMessage({
+                type: 'START_BACKGROUND_NOTIFICATIONS',
+                interval: interval,
+              });
+              console.log('✅ Background notifications started (iOS: ' + isIOSDevice + ')');
+            }
+
+            // iOS: Set up keep-alive ping to prevent service worker suspension
+            if (isIOSDevice) {
+              setInterval(async () => {
+                if (registration.active) {
+                  registration.active.postMessage({
+                    type: 'KEEP_ALIVE',
+                  });
+                }
+              }, 20000); // Ping every 20 seconds on iOS
+            }
+          } catch (error) {
+            console.log('Failed to start background notifications:', error);
           }
         }
       }
@@ -77,30 +133,65 @@ export default function NotificationManager() {
       const registration = await navigator.serviceWorker.ready;
 
       const notifications = [
-        "🛍️ New products just dropped!",
-        "🔥 Limited time offers available!",
-        "🎉 Special discount for you!",
-        "📦 Your cart items are waiting!",
-        "⭐ Featured product of the day!"
+        "💜 New match found! Someone wants to connect with you.",
+        "💬 You have a new message from a counselor.",
+        "⭐ A candidate viewed your profile!",
+        "🎯 Perfect match detected! Check it out now.",
+        "📧 New connection request waiting for you.",
+        "🔥 Hot match alert! Someone is interested.",
+        "✨ Your profile got a new like!",
+        "💼 New counselor available in your area."
       ];
 
       const randomMessage = notifications[Math.floor(Math.random() * notifications.length)];
 
-      await registration.showNotification('ATB Shop', {
+      await registration.showNotification('ATB Matchmaking', {
         body: randomMessage,
-        icon: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/Instagram_icon.png/1024px-Instagram_icon.png',
-        badge: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/Instagram_icon.png/1024px-Instagram_icon.png',
-        tag: 'shop-notification',
+        icon: 'https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB',
+        badge: 'https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB',
+        tag: 'matchmaking-notification',
         requireInteraction: false,
         vibrate: [200, 100, 200],
+        data: {
+          url: '/',
+          timestamp: Date.now(),
+        },
       } as NotificationOptions);
     } catch (error) {
       console.log('Notification failed:', error);
     }
   };
 
-  const sendTestNotification = () => {
+  const sendTestNotification = async () => {
+    // Send immediate test notification
     sendNotification();
+
+    // Also test push notification service
+    await pushNotificationService.sendTestNotification();
+  };
+
+  const sendBackgroundTest = async () => {
+    // Test background notification by sending message to service worker
+    if ('serviceWorker' in navigator) {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        if (registration.active) {
+          // Send message to service worker to trigger background notification
+          registration.active.postMessage({
+            type: 'TEST_BACKGROUND_NOTIFICATION',
+          });
+          console.log('✅ Test background notification sent to service worker');
+        }
+      } catch (error) {
+        console.error('Failed to send test notification:', error);
+      }
+    }
+
+    // Also simulate a push notification
+    await pushNotificationService.simulatePushNotification(
+      'ATB Matchmaking - Background Test',
+      '💜 This notification works even when the app is closed! Just like Instagram, Facebook, or WhatsApp. Close the app and wait 60 seconds to see automatic notifications.'
+    );
   };
 
   const toggleOpen = () => {
@@ -193,8 +284,13 @@ export default function NotificationManager() {
         {permission === 'default' && (
           <div className="space-y-3">
             <p className="text-gray-600 text-sm">
-              Enable notifications to get updates every 5 seconds
+              Enable notifications to get updates even when the app is closed, just like Instagram, Facebook, or WhatsApp.
             </p>
+            {/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800">
+                <strong>📱 iOS/Mac Note:</strong> For best results, add this app to your home screen. Notifications work on iOS and Mac Safari when the app is installed.
+              </div>
+            )}
             {backgroundMode && (
               <div className="flex items-center gap-2 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
                 <Zap className="w-3 h-3" />
@@ -233,32 +329,52 @@ export default function NotificationManager() {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              {!isEnabled ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                {!isEnabled ? (
+                  <button
+                    onClick={startNotifications}
+                    className="bg-green-500 text-white py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors hover:bg-green-600"
+                  >
+                    <Play className="w-4 h-4" />
+                    Start (5s)
+                  </button>
+                ) : (
+                  <button
+                    onClick={stopNotifications}
+                    className="bg-red-500 text-white py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors hover:bg-red-600"
+                  >
+                    <Square className="w-4 h-4" />
+                    Stop
+                  </button>
+                )}
+
                 <button
-                  onClick={startNotifications}
-                  className="bg-green-500 text-white py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors hover:bg-green-600"
+                  onClick={sendTestNotification}
+                  className="bg-blue-500 text-white py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors hover:bg-blue-600"
                 >
-                  <Play className="w-4 h-4" />
-                  Start (5s)
+                  <TestTube className="w-4 h-4" />
+                  Test
                 </button>
-              ) : (
-                <button
-                  onClick={stopNotifications}
-                  className="bg-red-500 text-white py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors hover:bg-red-600"
-                >
-                  <Square className="w-4 h-4" />
-                  Stop
-                </button>
-              )}
+              </div>
 
               <button
-                onClick={sendTestNotification}
-                className="bg-blue-500 text-white py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors hover:bg-blue-600"
+                onClick={sendBackgroundTest}
+                className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors hover:from-purple-600 hover:to-pink-600"
               >
-                <TestTube className="w-4 h-4" />
-                Test
+                <Send className="w-4 h-4" />
+                Test Background (Works When App Closed)
               </button>
+
+              {pushEnabled && (
+                <div className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded flex items-center gap-1">
+                  <Zap className="w-3 h-3" />
+                  Background notifications enabled - Works like Instagram/Facebook/WhatsApp
+                  {/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) && (
+                    <span className="ml-1">(iOS/Mac supported)</span>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-between text-xs text-gray-500">

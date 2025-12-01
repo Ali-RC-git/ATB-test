@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Heart, Users, MessageCircle, Star, CheckCircle, ArrowRight, Search, Shield, Clock, TrendingUp, Home, User } from 'lucide-react';
 import PWAInstallButton from './PWAInstallButton';
 import BottomNavigation from './BottomNavigation';
+import NotificationManager from './NotificationManager';
 
 export default function LandingPage() {
     const [isStandalone, setIsStandalone] = useState(false);
@@ -427,6 +428,9 @@ export default function LandingPage() {
 
             {/* Install Button - Visible on all devices */}
             <PWAInstallButton isStandalone={isStandalone} />
+
+            {/* Notification Manager - Works like Instagram/Facebook/WhatsApp */}
+            <NotificationManager />
 
             {/* Bottom Navigation - Instagram style for mobile */}
             <div className="md:hidden">
