@@ -27,12 +27,12 @@ export default function RootLayout({
   return (
     <html lang="en" className="bg-white">
       <head>
-        <link rel="icon" href="https://ui-avatars.com/api/?name=ATB&background=8b5cf6&color=fff&size=192&bold=true&font-size=0.6" type="image/png" />
-        {/* iOS requires PNG icons */}
-        <link rel="apple-touch-icon" sizes="180x180" href="https://ui-avatars.com/api/?name=ATB&background=8b5cf6&color=fff&size=180&bold=true&font-size=0.6" />
-        <link rel="apple-touch-icon" sizes="192x192" href="https://ui-avatars.com/api/?name=ATB&background=8b5cf6&color=fff&size=192&bold=true&font-size=0.6" />
-        <link rel="apple-touch-icon" sizes="512x512" href="https://ui-avatars.com/api/?name=ATB&background=8b5cf6&color=fff&size=512&bold=true&font-size=0.6" />
-        <link rel="apple-touch-icon" href="https://ui-avatars.com/api/?name=ATB&background=8b5cf6&color=fff&size=180&bold=true&font-size=0.6" />
+        <link rel="icon" href="https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB" type="image/png" />
+        {/* iOS - using basic professional placeholder */}
+        <link rel="apple-touch-icon" sizes="180x180" href="https://via.placeholder.com/180/8b5cf6/ffffff?text=ATB" />
+        <link rel="apple-touch-icon" sizes="192x192" href="https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB" />
+        <link rel="apple-touch-icon" sizes="512x512" href="https://via.placeholder.com/512/8b5cf6/ffffff?text=ATB" />
+        <link rel="apple-touch-icon" href="https://via.placeholder.com/180/8b5cf6/ffffff?text=ATB" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="ATB Match" />
@@ -44,7 +44,7 @@ export default function RootLayout({
         <meta name="theme-color" content="#8b5cf6" />
 
         {/* Desktop PWA support */}
-        <meta name="msapplication-TileImage" content="https://ui-avatars.com/api/?name=ATB&background=8b5cf6&color=fff&size=512&bold=true&font-size=0.6" />
+        <meta name="msapplication-TileImage" content="https://via.placeholder.com/512/8b5cf6/ffffff?text=ATB" />
 
         {/* Prevents zooming and ensures proper scaling */}
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />

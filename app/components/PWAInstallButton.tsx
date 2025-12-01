@@ -20,6 +20,7 @@ export default function PWAInstallButton({ isStandalone }: PWAInstallButtonProps
   const [permissionsGranted, setPermissionsGranted] = useState(false);
   const [requestingPermissions, setRequestingPermissions] = useState(false);
   const [showPermissionModal, setShowPermissionModal] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [permissionStatus, setPermissionStatus] = useState({
     notifications: 'default' as 'default' | 'granted' | 'denied',
     serviceWorker: false
@@ -48,6 +49,9 @@ export default function PWAInstallButton({ isStandalone }: PWAInstallButtonProps
   };
 
   useEffect(() => {
+    // Mark component as mounted to prevent hydration mismatch
+    setMounted(true);
+
     // Enhanced standalone detection
     const checkIfInstalled = () => {
       const isStandaloneMode = window.matchMedia('(display-mode: standalone)').matches;
@@ -715,12 +719,9 @@ The app will install as a desktop application!`);
       )}
 
       {/* Floating install button - Always show for all platforms */}
+      {/* Use consistent className on initial render to prevent hydration mismatch */}
       <div
-        className={`fixed ${isDesktop ? 'top-4 right-4' : 'bottom-24 right-4'} z-[9999]`}
-        style={{
-          position: 'fixed',
-          zIndex: 9999
-        }}
+        className={`md:hidden fixed ${mounted && isDesktop ? 'top-4 right-4' : 'bottom-24 right-4'} z-[9999]`}
       >
         <button
           onClick={handleInstallClick}

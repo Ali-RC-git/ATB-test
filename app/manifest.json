@@ -5,51 +5,36 @@
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#ffffff",
+  "theme_color": "#3b82f6",
   "orientation": "portrait",
   "scope": "/",
   "icons": [
     {
-      "src": "https://ui-avatars.com/api/?name=ATB&background=8b5cf6&color=fff&size=192&bold=true&font-size=0.6",
+      "src": "/heart.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "https://ui-avatars.com/api/?name=ATB&background=8b5cf6&color=fff&size=512&bold=true&font-size=0.6",
+      "src": "/heart.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
     }
   ],
   "categories": ["social", "business", "education"],
-  "screenshots": [],
   "shortcuts": [
     {
       "name": "Find Counselors",
       "short_name": "Counselors",
       "description": "Browse available career counselors",
-      "url": "/?tab=counselors",
-      "icons": [
-        {
-          "src": "https://ui-avatars.com/api/?name=ATB&background=8b5cf6&color=fff&size=192&bold=true&font-size=0.6",
-          "sizes": "192x192",
-          "type": "image/png"
-        }
-      ]
+      "url": "/?tab=counselors"
     },
     {
       "name": "Find Candidates",
       "short_name": "Candidates",
       "description": "Browse available candidates",
-      "url": "/?tab=candidates",
-      "icons": [
-        {
-          "src": "https://ui-avatars.com/api/?name=ATB&background=8b5cf6&color=fff&size=192&bold=true&font-size=0.6",
-          "sizes": "192x192",
-          "type": "image/png"
-        }
-      ]
+      "url": "/?tab=candidates"
     }
   ]
 }
