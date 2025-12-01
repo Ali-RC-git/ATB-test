@@ -16,7 +16,7 @@ export default function NotificationManager() {
     if ('Notification' in window && 'serviceWorker' in navigator) {
       setIsSupported(true);
       setPermission(Notification.permission);
-      
+
       if ('periodicSync' in navigator) {
         setBackgroundMode(true);
       }
@@ -29,11 +29,11 @@ export default function NotificationManager() {
     try {
       const result = await Notification.requestPermission();
       setPermission(result);
-      
+
       if (result === 'granted') {
         setIsEnabled(true);
         startNotifications();
-        
+
         if (backgroundMode && 'periodicSync' in navigator) {
           try {
             // @ts-ignore
@@ -58,7 +58,7 @@ export default function NotificationManager() {
     notificationInterval.current = setInterval(() => {
       sendNotification();
     }, 5000);
-    
+
     setIsEnabled(true);
   };
 
@@ -75,7 +75,7 @@ export default function NotificationManager() {
 
     try {
       const registration = await navigator.serviceWorker.ready;
-      
+
       const notifications = [
         "🛍️ New products just dropped!",
         "🔥 Limited time offers available!",
@@ -83,9 +83,9 @@ export default function NotificationManager() {
         "📦 Your cart items are waiting!",
         "⭐ Featured product of the day!"
       ];
-      
+
       const randomMessage = notifications[Math.floor(Math.random() * notifications.length)];
-      
+
       await registration.showNotification('ATB Shop', {
         body: randomMessage,
         icon: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/Instagram_icon.png/1024px-Instagram_icon.png',
@@ -93,7 +93,7 @@ export default function NotificationManager() {
         tag: 'shop-notification',
         requireInteraction: false,
         vibrate: [200, 100, 200],
-      });
+      } as NotificationOptions);
     } catch (error) {
       console.log('Notification failed:', error);
     }
@@ -187,7 +187,7 @@ export default function NotificationManager() {
           </button>
         </div>
       </div>
-      
+
       {/* Content */}
       <div className="p-4">
         {permission === 'default' && (
@@ -232,7 +232,7 @@ export default function NotificationManager() {
                 </div>
               )}
             </div>
-            
+
             <div className="grid grid-cols-2 gap-2">
               {!isEnabled ? (
                 <button
@@ -251,7 +251,7 @@ export default function NotificationManager() {
                   Stop
                 </button>
               )}
-              
+
               <button
                 onClick={sendTestNotification}
                 className="bg-blue-500 text-white py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors hover:bg-blue-600"
@@ -260,7 +260,7 @@ export default function NotificationManager() {
                 Test
               </button>
             </div>
-            
+
             <div className="flex items-center justify-between text-xs text-gray-500">
               <span>
                 {isEnabled ? '🟢 Active every 5 seconds' : '⚫ Notifications stopped'}

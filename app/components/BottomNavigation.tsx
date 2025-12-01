@@ -1,6 +1,6 @@
 'use client';
 
-import { Home, Search, PlusSquare, ShoppingBag, User } from 'lucide-react';
+import { Home, Search, Heart, MessageCircle, User } from 'lucide-react';
 
 interface BottomNavigationProps {
   activeTab: string;
@@ -10,9 +10,9 @@ interface BottomNavigationProps {
 export default function BottomNavigation({ activeTab, onTabChange }: BottomNavigationProps) {
   const tabs = [
     { icon: Home, label: "Home", id: "home" },
-    { icon: Search, label: "Search", id: "search" },
-    { icon: PlusSquare, label: "Add", id: "add" },
-    { icon: ShoppingBag, label: "Shop", id: "shop" },
+    { icon: Search, label: "Discover", id: "search" },
+    { icon: Heart, label: "Matches", id: "matches" },
+    { icon: MessageCircle, label: "Messages", id: "messages" },
     { icon: User, label: "Profile", id: "profile" }
   ];
 
