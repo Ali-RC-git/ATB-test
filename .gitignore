@@ -30,6 +30,13 @@ serviceAccountKey.json
 app/lib/serviceAccountKey.json
 **/serviceAccountKey.json
 
+# Files containing secrets (NEVER commit these!)
+add-service-account-to-env.sh
+*UPDATE_ENV.md
+*SECURITY_FIX.md
+REMOVE_SECRETS_FROM_GIT.md
+clean-secrets-from-git.sh
+
 # debug
 npm-debug.log*
 yarn-debug.log*
