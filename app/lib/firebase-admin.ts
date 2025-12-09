@@ -45,16 +45,25 @@ export function initializeFirebaseAdmin(): App | null {
     return adminApp;
   }
 
-  // Get service account from environment or file
+  // Get service account from environment variables (PRIORITY) or file
   const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
   try {
     let serviceAccount: any = null;
 
+    // Priority 1: Environment variable (FIREBASE_SERVICE_ACCOUNT_JSON)
     if (serviceAccountJson) {
-      // Use JSON string from environment variable
-      serviceAccount = JSON.parse(serviceAccountJson);
+      try {
+        // Use JSON string from environment variable
+        // Replace escaped newlines with actual newlines for private key
+        const jsonString = serviceAccountJson.replace(/\\n/g, '\n');
+        serviceAccount = JSON.parse(jsonString);
+        console.log('✅ Using Firebase service account from FIREBASE_SERVICE_ACCOUNT_JSON');
+      } catch (parseError) {
+        console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:', parseError);
+        return null;
+      }
     } else if (serviceAccountPath) {
       // Use file path from environment
       try {
