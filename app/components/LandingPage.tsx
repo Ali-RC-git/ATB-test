@@ -28,15 +28,6 @@ export default function LandingPage() {
                 const installed = isStandaloneMode || isFullscreen || isMinimalUI || isIOSStandalone || isAndroidStandalone;
 
                 setIsStandalone(installed);
-
-                console.log('Standalone detection:', {
-                    isStandaloneMode,
-                    isFullscreen,
-                    isMinimalUI,
-                    isIOSStandalone,
-                    isAndroidStandalone,
-                    final: installed
-                });
             };
             checkStandalone();
             // Check periodically in case it changes

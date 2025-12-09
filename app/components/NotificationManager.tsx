@@ -16,14 +16,32 @@ export default function NotificationManager() {
   useEffect(() => {
     const initNotifications = async () => {
       // Check if notifications are supported (works on iOS, Mac, Android, Desktop)
+      console.log('🔍 Checking notification support...');
+      console.log('Notification in window:', 'Notification' in window);
+      console.log('User Agent:', navigator.userAgent);
+
+      // Detect iOS and browser type for informational purposes
+      const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+      const isIOSChrome = isIOS && /CriOS/.test(navigator.userAgent);
+      const isIOSFirefox = isIOS && /FxiOS/.test(navigator.userAgent);
+      const isIOSEdge = isIOS && /EdgiOS/.test(navigator.userAgent);
+      const isIOSSafari = isIOS && !isIOSChrome && !isIOSFirefox && !isIOSEdge;
+
+      console.log('Device info:', { isIOS, isIOSChrome, isIOSFirefox, isIOSEdge, isIOSSafari });
+
+
       if ('Notification' in window) {
+        console.log('✅ Notifications are supported');
+        console.log('Current permission:', Notification.permission);
         setIsSupported(true);
         setPermission(Notification.permission);
 
         // Check for service worker support (required for background notifications)
         if ('serviceWorker' in navigator) {
+          console.log('✅ Service Worker is supported');
           if ('periodicSync' in navigator) {
             setBackgroundMode(true);
+            console.log('✅ Background sync is supported');
           }
 
           // Initialize push notification service
@@ -43,9 +61,19 @@ export default function NotificationManager() {
             }
           }
         } else {
+          console.log('⚠️ Service Worker not supported - using basic notifications');
           // iOS/Mac Safari without service worker - basic notifications still work
           setPushEnabled(Notification.permission === 'granted');
         }
+      } else {
+        console.warn('⚠️ Notification API not detected in this browser');
+        console.log('This might be due to:');
+        console.log('- Insecure context (not HTTPS)');
+        console.log('- Browser doesn\'t support Notification API');
+        console.log('- Notifications disabled in browser settings');
+        // Still set as supported so we can show the enable button and guide users
+        setIsSupported(true);
+        setPermission('default');
       }
     };
 
@@ -53,7 +81,20 @@ export default function NotificationManager() {
   }, []);
 
   const requestPermission = async () => {
-    if (!isSupported) return;
+    // Check if Notification API is available
+    if (!('Notification' in window)) {
+      // Show instructions to enable notifications
+      alert(
+        '⚠️ Notifications are not available in this browser.\n\n' +
+        'To enable notifications:\n\n' +
+        '1. Check your browser settings\n' +
+        '2. Make sure notifications are enabled for this site\n' +
+        '3. If on iOS, try using Safari or add this app to your home screen\n' +
+        '4. Ensure you\'re accessing via HTTPS or localhost\n\n' +
+        'After enabling, please refresh the page.'
+      );
+      return;
+    }
 
     try {
       // Request notification permission
@@ -146,14 +187,37 @@ export default function NotificationManager() {
         }),
       });
 
-      const data = await response.json();
-      if (response.ok) {
-        console.log('✅ Test notification sent:', data);
+      const result = await response.json();
+      console.log('📨 API Response:', result);
+
+      if (response.ok && result.success) {
+        // Success response
+        const sentCount = result.data?.sent || 0;
+        console.log('✅ Test notification sent:', result);
+        alert(`✅ Notification sent successfully to ${sentCount} device(s)!`);
       } else {
-        console.error('❌ Failed to send test notification:', data);
+        console.error('❌ Failed to send test notification:', result);
+
+        // Show user-friendly error message
+        if (response.status === 503) {
+          alert('⚠️ Firebase Admin not configured.\n\n' +
+            'Browser notifications work locally, but backend push notifications require Firebase setup.\n\n' +
+            'See FIREBASE_SETUP.md for instructions.');
+        } else if (result.error === 'No devices registered') {
+          alert('⚠️ No devices registered\\n\\n' +
+            result.message + '\\n\\n' +
+            'Please enable notifications in your browser and try again.');
+        } else if (result.error === 'Validation error') {
+          alert('❌ Validation Error\\n\\n' +
+            result.message + '\\n\\n' +
+            'Missing: ' + (result.missingFields?.join(', ') || 'unknown'));
+        } else {
+          alert(`❌ Failed to send notification\\n\\n${result.message || result.error || 'Unknown error'}`);
+        }
       }
     } catch (error) {
       console.error('❌ Error sending test notification:', error);
+      alert('❌ Network error sending test notification.\n\nCheck console for details.');
     }
   };
 
@@ -251,8 +315,17 @@ export default function NotificationManager() {
         {!isSupported && (
           <div className="space-y-3">
             <p className="text-gray-600 text-sm">
-              Notifications are not supported in this browser. Please use a modern browser like Chrome, Firefox, or Safari.
+              Notifications are not available in this browser.
             </p>
+            <ul className="text-xs text-gray-500 space-y-1 list-disc list-inside">
+              <li>Make sure you're using a modern browser (Chrome, Firefox, Safari, Edge)</li>
+              <li>Update your browser to the latest version</li>
+              <li>Check if notifications are enabled in browser settings</li>
+              <li>Ensure you're accessing the site via HTTPS or localhost</li>
+              {/iPhone|iPad|iPod/.test(navigator.userAgent) && (
+                <li><strong>iOS users:</strong> Try adding the app to your home screen for better notification support</li>
+              )}
+            </ul>
             <button
               onClick={closeManager}
               className="w-full bg-gray-500 text-white py-2 rounded-lg text-sm font-semibold transition-colors hover:bg-gray-600"

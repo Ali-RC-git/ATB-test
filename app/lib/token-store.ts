@@ -10,7 +10,18 @@ interface TokenRecord {
 }
 
 // In-memory store (replace with database in production)
-const tokenStore = new Map<string, TokenRecord>();
+// Using globalThis to ensure singleton across Next.js hot reloads
+const globalForTokenStore = globalThis as unknown as {
+  tokenStore: Map<string, TokenRecord> | undefined;
+};
+
+const tokenStore = globalForTokenStore.tokenStore ?? new Map<string, TokenRecord>();
+
+if (process.env.NODE_ENV !== 'production') {
+  globalForTokenStore.tokenStore = tokenStore;
+}
+
+console.log(`🔧 Token store initialized (size: ${tokenStore.size})`);
 
 // Store a token
 export function storeToken(token: string, userId?: string, deviceInfo?: string): void {
@@ -26,7 +37,13 @@ export function storeToken(token: string, userId?: string, deviceInfo?: string):
 
 // Get all tokens
 export function getAllTokens(): string[] {
-  return Array.from(tokenStore.keys());
+  const tokens = Array.from(tokenStore.keys());
+  console.log(`📊 getAllTokens called - Found ${tokens.length} token(s)`);
+  console.log(`📊 Token store size: ${tokenStore.size}`);
+  if (tokens.length > 0) {
+    console.log(`📊 First token: ${tokens[0].substring(0, 20)}...`);
+  }
+  return tokens;
 }
 
 // Get tokens for a specific user

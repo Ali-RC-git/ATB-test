@@ -7,30 +7,6 @@ import { getMessaging, Messaging } from 'firebase-admin/messaging';
 let adminApp: App | null = null;
 let adminMessaging: Messaging | null = null;
 
-// Load service account from file (runtime only, not during build)
-function loadServiceAccountFromFile(): any | null {
-  if (typeof window !== 'undefined') {
-    return null; // Client-side, can't load files
-  }
-
-  try {
-    // Use dynamic import to avoid build-time analysis
-    const fs = require('fs');
-    const path = require('path');
-    const serviceAccountPath = path.join(process.cwd(), 'serviceAccountKey.json');
-    
-    if (fs.existsSync(serviceAccountPath)) {
-      const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
-      return JSON.parse(fileContent);
-    }
-  } catch (error) {
-    // File doesn't exist or can't be read - this is OK
-    return null;
-  }
-  
-  return null;
-}
-
 // Initialize Firebase Admin
 export function initializeFirebaseAdmin(): App | null {
   // Return existing app if already initialized
@@ -45,43 +21,21 @@ export function initializeFirebaseAdmin(): App | null {
     return adminApp;
   }
 
-  // Get service account from environment variables (PRIORITY) or file
-  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-
   try {
-    let serviceAccount: any = null;
+    // Load service account from app/lib/serviceAccountKey.json
+    const fs = require('fs');
+    const path = require('path');
+    const serviceAccountPath = path.join(process.cwd(), 'app', 'lib', 'serviceAccountKey.json');
 
-    // Priority 1: Environment variable (FIREBASE_SERVICE_ACCOUNT_JSON)
-    if (serviceAccountJson) {
-      try {
-        // Use JSON string from environment variable
-        // Replace escaped newlines with actual newlines for private key
-        const jsonString = serviceAccountJson.replace(/\\n/g, '\n');
-        serviceAccount = JSON.parse(jsonString);
-        console.log('✅ Using Firebase service account from FIREBASE_SERVICE_ACCOUNT_JSON');
-      } catch (parseError) {
-        console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:', parseError);
-        return null;
-      }
-    } else if (serviceAccountPath) {
-      // Use file path from environment
-      try {
-        const fs = require('fs');
-        const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
-        serviceAccount = JSON.parse(fileContent);
-      } catch (error) {
-        console.error('❌ Failed to load service account from path:', serviceAccountPath);
-        return null;
-      }
-    } else {
-      // Try to load from default location (runtime only)
-      serviceAccount = loadServiceAccountFromFile();
-      if (!serviceAccount) {
-        // No service account found - this is OK, will return null
-        return null;
-      }
+    if (!fs.existsSync(serviceAccountPath)) {
+      console.error('❌ Service account file not found at:', serviceAccountPath);
+      console.log('📁 Please place serviceAccountKey.json in the app/lib folder');
+      return null;
     }
+
+    console.log('✅ Loading service account from:', serviceAccountPath);
+    const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
+    const serviceAccount = JSON.parse(fileContent);
 
     // Initialize with the service account
     adminApp = initializeApp({

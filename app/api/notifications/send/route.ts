@@ -11,9 +11,16 @@ export async function POST(request: NextRequest) {
     // Initialize Firebase Admin
     const messaging = getAdminMessaging();
     if (!messaging) {
+      console.error('❌ Firebase Admin not initialized');
       return NextResponse.json(
-        { error: 'Firebase Admin not initialized. Check service account configuration.' },
-        { status: 500 }
+        {
+          success: false,
+          error: 'Firebase Admin not initialized',
+          message: 'Backend push notifications require Firebase service account configuration.',
+          details: 'Browser notifications still work locally. To enable backend push notifications, configure Firebase Admin with a service account.',
+          documentation: 'See FIREBASE_SETUP.md and HOW_TO_GET_SERVICE_ACCOUNT_KEY.md for setup instructions.'
+        },
+        { status: 503 }
       );
     }
 
@@ -23,8 +30,14 @@ export async function POST(request: NextRequest) {
 
     // Validate required fields
     if (!title || !messageBody) {
+      console.error('❌ Validation error: Missing title or body');
       return NextResponse.json(
-        { error: 'Title and body are required' },
+        {
+          success: false,
+          error: 'Validation error',
+          message: 'Title and body are required',
+          missingFields: [!title && 'title', !messageBody && 'body'].filter(Boolean)
+        },
         { status: 400 }
       );
     }
@@ -33,11 +46,15 @@ export async function POST(request: NextRequest) {
     const tokens = getAllTokens();
 
     if (tokens.length === 0) {
+      console.warn('⚠️ No devices registered for notifications');
       return NextResponse.json(
-        { 
+        {
+          success: false,
           error: 'No devices registered',
           message: 'No FCM tokens found. Make sure users have enabled notifications.',
-          tokenCount: 0
+          data: {
+            tokenCount: 0
+          }
         },
         { status: 400 }
       );
@@ -87,10 +104,10 @@ export async function POST(request: NextRequest) {
       if (result.status === 'rejected') {
         const error = result.reason;
         console.error(`❌ Failed to send to token ${index}:`, error.code || error.message);
-        
+
         // Remove invalid tokens
-        if (error.code === 'messaging/invalid-registration-token' || 
-            error.code === 'messaging/registration-token-not-registered') {
+        if (error.code === 'messaging/invalid-registration-token' ||
+          error.code === 'messaging/registration-token-not-registered') {
           failedTokens.push(tokens[index]);
         }
       }
@@ -103,20 +120,40 @@ export async function POST(request: NextRequest) {
       console.log(`🗑️ Removed ${failedTokens.length} invalid token(s)`);
     }
 
+    // Log success
+    console.log(`✅ Notifications sent: ${successful} succeeded, ${failed} failed`);
+
+    // Return detailed success response
     return NextResponse.json({
       success: true,
-      message: 'Notifications sent',
-      sent: successful,
-      failed: failed,
-      total: tokens.length,
-      invalidTokensRemoved: failedTokens.length,
+      message: successful > 0
+        ? `Successfully sent ${successful} notification(s)`
+        : 'No notifications were sent successfully',
+      data: {
+        sent: successful,
+        failed: failed,
+        total: tokens.length,
+        invalidTokensRemoved: failedTokens.length,
+        timestamp: new Date().toISOString(),
+      },
+      warnings: failed > 0 ? [`${failed} notification(s) failed to send`] : undefined,
     });
   } catch (error: any) {
-    console.error('Error sending notifications:', error);
+    console.error('❌ Error sending notifications:', error);
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      stack: error.stack,
+    });
+
+    // Return detailed error response
     return NextResponse.json(
-      { 
+      {
+        success: false,
         error: 'Failed to send notifications',
-        message: error.message || 'Unknown error'
+        message: error.message || 'Unknown error occurred',
+        errorCode: error.code || 'UNKNOWN_ERROR',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
       },
       { status: 500 }
     );
@@ -127,11 +164,11 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   const { getTokenCount } = await import('@/app/lib/token-store');
   const tokenCount = getTokenCount();
-  
+
   return NextResponse.json({
     status: 'ready',
     registeredDevices: tokenCount,
-    message: tokenCount > 0 
+    message: tokenCount > 0
       ? `${tokenCount} device(s) registered and ready to receive notifications`
       : 'No devices registered yet. Users need to enable notifications first.',
   });
