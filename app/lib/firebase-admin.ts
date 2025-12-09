@@ -22,20 +22,39 @@ export function initializeFirebaseAdmin(): App | null {
   }
 
   try {
-    // Load service account from app/lib/serviceAccountKey.json
-    const fs = require('fs');
-    const path = require('path');
-    const serviceAccountPath = path.join(process.cwd(), 'app', 'lib', 'serviceAccountKey.json');
+    let serviceAccount: any = null;
 
-    if (!fs.existsSync(serviceAccountPath)) {
-      console.error('❌ Service account file not found at:', serviceAccountPath);
-      console.log('📁 Please place serviceAccountKey.json in the app/lib folder');
-      return null;
+    // Priority 1: Environment variable (for production/Vercel)
+    const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+    if (serviceAccountJson) {
+      try {
+        console.log('🔧 Loading service account from environment variable');
+        serviceAccount = JSON.parse(serviceAccountJson);
+        console.log('✅ Service account loaded from FIREBASE_SERVICE_ACCOUNT_JSON');
+      } catch (parseError) {
+        console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:', parseError);
+        // Continue to try file method
+      }
     }
 
-    console.log('✅ Loading service account from:', serviceAccountPath);
-    const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
-    const serviceAccount = JSON.parse(fileContent);
+    // Priority 2: Load from file (for local development)
+    if (!serviceAccount) {
+      const fs = require('fs');
+      const path = require('path');
+      const serviceAccountPath = path.join(process.cwd(), 'app', 'lib', 'serviceAccountKey.json');
+
+      if (fs.existsSync(serviceAccountPath)) {
+        console.log('🔧 Loading service account from file:', serviceAccountPath);
+        const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
+        serviceAccount = JSON.parse(fileContent);
+        console.log('✅ Service account loaded from file');
+      } else {
+        console.error('❌ Service account file not found at:', serviceAccountPath);
+        console.log('💡 For production, set FIREBASE_SERVICE_ACCOUNT_JSON environment variable');
+        console.log('💡 For local development, place serviceAccountKey.json in app/lib folder');
+        return null;
+      }
+    }
 
     // Initialize with the service account
     adminApp = initializeApp({
