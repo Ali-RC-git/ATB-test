@@ -38,20 +38,24 @@ self.addEventListener("activate", (event) => {
 
 // Fetch event - serve from cache, fallback to network
 self.addEventListener("fetch", (event) => {
+  // Skip non-GET requests
+  if (event.request.method !== "GET") {
+    return;
+  }
+
   event.respondWith(
     caches
       .match(event.request)
       .then((response) => {
         // Return cached version or fetch from network
-        return (
-          response ||
-          fetch(event.request).then((response) => {
-            // Don't cache non-GET requests or non-successful responses
-            if (
-              event.request.method !== "GET" ||
-              !response ||
-              response.status !== 200
-            ) {
+        if (response) {
+          return response;
+        }
+
+        return fetch(event.request)
+          .then((response) => {
+            // Don't cache non-successful responses
+            if (!response || response.status !== 200) {
               return response;
             }
 
@@ -64,32 +68,99 @@ self.addEventListener("fetch", (event) => {
 
             return response;
           })
-        );
+          .catch(() => {
+            // Return offline page if available for document requests
+            if (event.request.destination === "document") {
+              return caches.match("/").then((cachedResponse) => {
+                return (
+                  cachedResponse || new Response("Offline", { status: 503 })
+                );
+              });
+            }
+            // For other requests, return a proper error response
+            return new Response("Network error", { status: 503 });
+          });
       })
       .catch(() => {
-        // Return offline page if available
+        // Fallback: return offline page or error response
         if (event.request.destination === "document") {
-          return caches.match("/");
+          return caches.match("/").then((cachedResponse) => {
+            return cachedResponse || new Response("Offline", { status: 503 });
+          });
         }
+        return new Response("Network error", { status: 503 });
       })
   );
 });
 
 // Push notification for matchmaking updates
+// Handles both FCM (Firebase Cloud Messaging) and standard push notifications
 self.addEventListener("push", (event) => {
-  if (!event.data) return;
+  console.log("📨 Push event received:", event);
 
-  const data = event.data.json();
+  if (!event.data) {
+    console.warn("Push event has no data");
+    return;
+  }
+
+  let notificationData;
+  let notificationTitle = "ATB Matchmaking";
+  let notificationBody = "New match or message from ATB Matchmaking!";
+  let notificationIcon = "/heart.png";
+  let notificationUrl = "/";
+
+  try {
+    // Parse push data
+    const data = event.data.json();
+    console.log("📦 Parsed push data:", data);
+
+    // Handle FCM format (Firebase Cloud Messaging)
+    if (data.notification) {
+      // FCM notification format
+      notificationTitle = data.notification.title || notificationTitle;
+      notificationBody = data.notification.body || notificationBody;
+      notificationIcon = data.notification.icon || notificationIcon;
+      notificationData = data.data || {};
+      notificationUrl = data.data?.url || data.fcmOptions?.link || "/";
+    } else if (data.data) {
+      // FCM data-only message format
+      notificationTitle = data.data.title || notificationTitle;
+      notificationBody =
+        data.data.body || data.data.message || notificationBody;
+      notificationIcon = data.data.icon || notificationIcon;
+      notificationData = data.data;
+      notificationUrl = data.data.url || "/";
+    } else {
+      // Standard push notification format (backward compatibility)
+      notificationTitle = data.title || notificationTitle;
+      notificationBody = data.body || notificationBody;
+      notificationIcon = data.icon || notificationIcon;
+      notificationData = data;
+      notificationUrl = data.url || "/";
+    }
+  } catch (error) {
+    // If JSON parsing fails, try text
+    try {
+      const text = event.data.text();
+      notificationBody = text || notificationBody;
+      console.log("📝 Push data as text:", text);
+    } catch (e) {
+      console.error("❌ Error parsing push data:", e);
+    }
+  }
+
   const options = {
-    body: data.body || "New match or message from ATB Matchmaking!",
-    icon: "https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB",
-    badge: "https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB",
+    body: notificationBody,
+    icon: notificationIcon,
+    badge: "/heart.png",
     vibrate: [200, 100, 200],
     data: {
-      url: data.url || "/",
+      url: notificationUrl,
       timestamp: Date.now(),
+      ...notificationData,
     },
-    requireInteraction: true, // Keep notification visible
+    requireInteraction: false,
+    tag: "atb-matchmaking-notification",
     actions: [
       {
         action: "open",
@@ -103,7 +174,14 @@ self.addEventListener("push", (event) => {
   };
 
   event.waitUntil(
-    self.registration.showNotification(data.title || "ATB Matchmaking", options)
+    self.registration
+      .showNotification(notificationTitle, options)
+      .then(() => {
+        console.log("✅ Notification shown:", notificationTitle);
+      })
+      .catch((error) => {
+        console.error("❌ Error showing notification:", error);
+      })
   );
 });
 
@@ -136,226 +214,36 @@ self.addEventListener("notificationclick", (event) => {
   );
 });
 
-// Periodic sync for background updates (experimental)
-self.addEventListener("periodicsync", (event) => {
-  if (event.tag === "background-notification") {
-    event.waitUntil(sendBackgroundNotification());
-  }
-});
+// Removed automatic background notifications
+// Only FCM push notifications from backend are handled via the "push" event listener above
 
-async function sendBackgroundNotification() {
-  try {
-    const iosDevice = isIOS();
-    const clients = await self.clients.matchAll({
-      type: "window",
-      includeUncontrolled: true,
-    });
-
-    // iOS-specific: More lenient check (iOS may not report clients correctly)
-    // For iOS, send notification if no visible clients OR if it's been a while
-    let shouldSend = false;
-
-    if (iosDevice) {
-      // iOS: Send if no clients OR if all clients are hidden
-      const hasVisibleClients = clients.some((client) => {
-        return client.visibilityState === "visible";
-      });
-      shouldSend = !hasVisibleClients || clients.length === 0;
-    } else {
-      // Other platforms: Only send if app is truly closed
-      const hasVisibleClients = clients.some((client) => {
-        if (client.visibilityState === "visible") {
-          return true;
-        }
-        if ("focused" in client && client.focused) {
-          return true;
-        }
-        return false;
-      });
-      shouldSend = !hasVisibleClients || clients.length === 0;
-    }
-
-    if (shouldSend) {
-      // App is closed or in background, send notification
-      const notifications = [
-        "💜 New matches waiting for you! Come back to connect.",
-        "💬 You have unread messages from counselors.",
-        "⭐ Someone viewed your profile while you were away.",
-        "🎯 New connection requests are waiting!",
-        "🔥 Don't miss out on potential matches!",
-        "✨ You have new activity on your profile!",
-        "💼 A counselor is interested in connecting with you.",
-        "📨 New message from a potential match!",
-        "🌟 Your profile got a new like!",
-      ];
-
-      const randomMessage =
-        notifications[Math.floor(Math.random() * notifications.length)];
-
-      // Send notification - this works even when app is closed
-      await self.registration.showNotification("ATB Matchmaking", {
-        body: randomMessage,
-        icon: "https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB",
-        badge: "https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB",
-        tag: "background-notification-" + Date.now(), // Unique tag to allow multiple notifications
-        requireInteraction: false,
-        vibrate: [200, 100, 200],
-        data: {
-          url: "/",
-          timestamp: Date.now(),
-        },
-      });
-
-      console.log(
-        "📱 Background notification sent (app closed/background) - " +
-          randomMessage
-      );
-    } else {
-      console.log(
-        "ℹ️ App is open and visible, skipping background notification"
-      );
-    }
-  } catch (error) {
-    console.error("Error sending background notification:", error);
-    // Even if there's an error, try to send a simple notification
-    try {
-      await self.registration.showNotification("ATB Matchmaking", {
-        body: "💜 New activity waiting for you!",
-        icon: "https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB",
-        tag: "background-error",
-      });
-    } catch (e) {
-      console.error("Failed to send fallback notification:", e);
-    }
-  }
-}
-
-// Background sync for periodic notifications (works when app is closed)
-// Works on iOS, Mac, Android, and Desktop
-self.addEventListener("sync", (event) => {
-  if (
-    event.tag === "background-sync" ||
-    event.tag === "background-notification-sync"
-  ) {
-    event.waitUntil(sendBackgroundNotification());
-  }
-});
-
-// Message handler from client to start background notifications
-let backgroundNotificationInterval = null;
-let lastNotificationTime = 0;
-const MIN_NOTIFICATION_INTERVAL = 30000; // Minimum 30 seconds between notifications
-
-// Detect if running on iOS
-function isIOS() {
-  return /iPhone|iPad|iPod/.test(self.navigator.userAgent);
-}
-
+// Message handler from client (minimal - only for FCM push notifications)
+// Automatic background notifications removed - only FCM push notifications are used
 self.addEventListener("message", (event) => {
   if (!event.data) return;
 
-  // iOS: Keep service worker alive with ping messages
+  // Keep service worker alive if needed
   if (event.data.type === "KEEP_ALIVE") {
-    console.log("💓 Keep-alive ping received (iOS)");
-    // Respond to keep service worker active
+    console.log("💓 Keep-alive ping received");
     if (event.ports && event.ports[0]) {
       event.ports[0].postMessage({ type: "ALIVE" });
     }
     return;
   }
 
-  if (event.data.type === "START_BACKGROUND_NOTIFICATIONS") {
-    const interval = event.data.interval || (isIOS() ? 30000 : 60000); // iOS: 30s, others: 60s
-
-    // Clear existing interval if any
-    if (backgroundNotificationInterval) {
-      clearInterval(backgroundNotificationInterval);
-    }
-
-    // Start periodic background notification checking
-    // This runs in the service worker, so it works even when app is closed
-    backgroundNotificationInterval = setInterval(async () => {
-      const now = Date.now();
-      // Throttle notifications (especially important for iOS)
-      if (now - lastNotificationTime >= MIN_NOTIFICATION_INTERVAL) {
-        await sendBackgroundNotification();
-        lastNotificationTime = now;
-      }
-    }, interval);
-
-    console.log(
-      "✅ Background notifications started in service worker (interval: " +
-        interval +
-        "ms, iOS: " +
-        isIOS() +
-        ")"
-    );
-
-    // Send immediate test notification
-    sendBackgroundNotification();
-    lastNotificationTime = Date.now();
-  }
-
-  if (event.data.type === "STOP_BACKGROUND_NOTIFICATIONS") {
-    if (backgroundNotificationInterval) {
-      clearInterval(backgroundNotificationInterval);
-      backgroundNotificationInterval = null;
-      console.log("⏹️ Background notifications stopped");
-    }
-  }
-
-  if (event.data.type === "TEST_BACKGROUND_NOTIFICATION") {
-    event.waitUntil(sendBackgroundNotification());
-  }
+  // All notifications are now sent via FCM push from the backend
+  // No automatic intervals or background notifications
 });
 
-// Auto-start background notifications when service worker activates
-// This ensures notifications work even if client doesn't send message
-// Note: This runs in the service worker, so it continues even when app is closed
-// iOS-specific: Uses shorter intervals and more aggressive checking
+// Service worker activation - ready to receive FCM push notifications
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
       await self.clients.claim();
-      const iosDevice = isIOS();
       console.log(
-        "✅ Service Worker activated - background notifications ready (iOS: " +
-          iosDevice +
-          ")"
+        "✅ Service Worker activated - Ready for FCM push notifications"
       );
-
-      // Wait a bit for service worker to be ready
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-
-      // Start background notification checker
-      // This interval runs in service worker context, so it works when app is closed
-      if (!backgroundNotificationInterval) {
-        console.log(
-          "🔄 Starting background notification checker in service worker"
-        );
-
-        // iOS needs more frequent checks due to service worker suspension
-        const checkInterval = iosDevice ? 30000 : 60000; // iOS: 30s, others: 60s
-
-        // Initial check after shorter delay for iOS
-        setTimeout(
-          async () => {
-            await sendBackgroundNotification();
-            lastNotificationTime = Date.now();
-          },
-          iosDevice ? 10000 : 15000
-        );
-
-        // Then check periodically
-        backgroundNotificationInterval = setInterval(async () => {
-          const now = Date.now();
-          // Throttle to prevent too many notifications
-          if (now - lastNotificationTime >= MIN_NOTIFICATION_INTERVAL) {
-            await sendBackgroundNotification();
-            lastNotificationTime = now;
-          }
-        }, checkInterval);
-      }
+      // No automatic background notifications - only FCM push from backend
     })()
   );
 });

@@ -5,6 +5,7 @@ import { Heart, Users, MessageCircle, Star, CheckCircle, ArrowRight, Search, Shi
 import PWAInstallButton from './PWAInstallButton';
 import BottomNavigation from './BottomNavigation';
 import NotificationManager from './NotificationManager';
+import SendNotificationButton from './SendNotificationButton';
 
 export default function LandingPage() {
     const [isStandalone, setIsStandalone] = useState(false);
@@ -368,6 +369,15 @@ export default function LandingPage() {
                             Learn More
                         </button>
                     </div>
+
+                    {/* Admin: Send Notification Button (for testing) */}
+                    <div className="mt-8 pt-8 border-t border-purple-400/30">
+                        <p className="text-purple-100 mb-4 text-sm font-semibold">Admin: Test Push Notifications</p>
+                        <div className="max-w-md mx-auto">
+                            <SendNotificationButton />
+                        </div>
+                    </div>
+
                     {/* Install App CTA for Mobile */}
                     {!isStandalone && (
                         <div className="mt-8 pt-8 border-t border-purple-400/30">

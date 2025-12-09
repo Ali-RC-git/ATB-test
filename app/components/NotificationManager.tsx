@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { Bell, Play, Square, TestTube, RotateCcw, Zap, Moon, X, ChevronDown, Send } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Bell, TestTube, RotateCcw, Zap, Moon, X, ChevronDown } from 'lucide-react';
 import { pushNotificationService } from './PushNotificationService';
 
 export default function NotificationManager() {
@@ -12,7 +12,6 @@ export default function NotificationManager() {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
-  const notificationInterval = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const initNotifications = async () => {
@@ -30,8 +29,18 @@ export default function NotificationManager() {
           // Initialize push notification service
           const initialized = await pushNotificationService.initialize();
           if (initialized) {
+            // Check for FCM token (Firebase Cloud Messaging)
+            const fcmToken = await pushNotificationService.getFCMToken();
+            // Also check for standard push subscription
             const subscription = await pushNotificationService.getSubscription();
-            setPushEnabled(!!subscription || Notification.permission === 'granted');
+            // Push is enabled if we have FCM token, subscription, or permission is granted
+            setPushEnabled(!!fcmToken || !!subscription || Notification.permission === 'granted');
+
+            if (fcmToken) {
+              console.log('✅ FCM Token available:', fcmToken.substring(0, 20) + '...');
+              // Automatically register token with backend
+              await pushNotificationService.sendTokenToServer(fcmToken);
+            }
           }
         } else {
           // iOS/Mac Safari without service worker - basic notifications still work
@@ -53,8 +62,19 @@ export default function NotificationManager() {
 
       if (result === 'granted') {
         setIsEnabled(true);
-        setPushEnabled(true);
-        startNotifications();
+
+        // Check for FCM token after permission is granted
+        const fcmToken = await pushNotificationService.getFCMToken();
+        const subscription = await pushNotificationService.getSubscription();
+        setPushEnabled(!!fcmToken || !!subscription || true);
+
+        if (fcmToken) {
+          console.log('✅ FCM Token obtained:', fcmToken.substring(0, 20) + '...');
+          // Automatically register token with backend
+          await pushNotificationService.sendTokenToServer(fcmToken);
+        }
+
+        // No automatic notifications - only manual via send button
 
         // Enable background notifications
         if (backgroundMode && 'periodicSync' in navigator) {
@@ -106,93 +126,39 @@ export default function NotificationManager() {
     }
   };
 
-  const startNotifications = () => {
-    if (notificationInterval.current) {
-      clearInterval(notificationInterval.current);
-    }
-
-    notificationInterval.current = setInterval(() => {
-      sendNotification();
-    }, 5000);
-
-    setIsEnabled(true);
-  };
-
-  const stopNotifications = () => {
-    if (notificationInterval.current) {
-      clearInterval(notificationInterval.current);
-      notificationInterval.current = null;
-    }
-    setIsEnabled(false);
-  };
-
-  const sendNotification = async () => {
-    if (!isSupported || permission !== 'granted') return;
-
-    try {
-      const registration = await navigator.serviceWorker.ready;
-
-      const notifications = [
-        "💜 New match found! Someone wants to connect with you.",
-        "💬 You have a new message from a counselor.",
-        "⭐ A candidate viewed your profile!",
-        "🎯 Perfect match detected! Check it out now.",
-        "📧 New connection request waiting for you.",
-        "🔥 Hot match alert! Someone is interested.",
-        "✨ Your profile got a new like!",
-        "💼 New counselor available in your area."
-      ];
-
-      const randomMessage = notifications[Math.floor(Math.random() * notifications.length)];
-
-      await registration.showNotification('ATB Matchmaking', {
-        body: randomMessage,
-        icon: 'https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB',
-        badge: 'https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB',
-        tag: 'matchmaking-notification',
-        requireInteraction: false,
-        vibrate: [200, 100, 200],
-        data: {
-          url: '/',
-          timestamp: Date.now(),
-        },
-      } as NotificationOptions);
-    } catch (error) {
-      console.log('Notification failed:', error);
-    }
-  };
-
   const sendTestNotification = async () => {
-    // Send immediate test notification
-    sendNotification();
+    // Send a test notification via FCM (Firebase Cloud Messaging)
+    // This will be sent through the backend API
+    try {
+      const response = await fetch('/api/notifications/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: '🔔 Test Notification',
+          body: 'This is a test notification sent via Firebase Cloud Messaging!',
+          data: {
+            url: '/',
+            type: 'test',
+            timestamp: Date.now().toString(),
+          },
+        }),
+      });
 
-    // Also test push notification service
-    await pushNotificationService.sendTestNotification();
-  };
-
-  const sendBackgroundTest = async () => {
-    // Test background notification by sending message to service worker
-    if ('serviceWorker' in navigator) {
-      try {
-        const registration = await navigator.serviceWorker.ready;
-        if (registration.active) {
-          // Send message to service worker to trigger background notification
-          registration.active.postMessage({
-            type: 'TEST_BACKGROUND_NOTIFICATION',
-          });
-          console.log('✅ Test background notification sent to service worker');
-        }
-      } catch (error) {
-        console.error('Failed to send test notification:', error);
+      const data = await response.json();
+      if (response.ok) {
+        console.log('✅ Test notification sent:', data);
+      } else {
+        console.error('❌ Failed to send test notification:', data);
       }
+    } catch (error) {
+      console.error('❌ Error sending test notification:', error);
     }
-
-    // Also simulate a push notification
-    await pushNotificationService.simulatePushNotification(
-      'ATB Matchmaking - Background Test',
-      '💜 This notification works even when the app is closed! Just like Instagram, Facebook, or WhatsApp. Close the app and wait 60 seconds to see automatic notifications.'
-    );
   };
+
+  // Removed automatic background notifications
+  // Notifications are now only sent manually via the send button using FCM
 
   const toggleOpen = () => {
     setIsOpen(!isOpen);
@@ -210,26 +176,25 @@ export default function NotificationManager() {
     setIsMinimized(false);
   };
 
-  // Cleanup on unmount
+  // Cleanup on unmount (no intervals to clean up anymore)
   useEffect(() => {
     return () => {
-      if (notificationInterval.current) {
-        clearInterval(notificationInterval.current);
-      }
+      // No automatic intervals - notifications are only sent manually
     };
   }, []);
 
-  if (!isSupported) {
-    return null;
-  }
+  // Always show the button, even if notifications aren't supported yet
+  // This ensures users can see and interact with the notification feature
 
   // Minimized state - just show a small bell icon
   if (isMinimized) {
     return (
-      <div className="fixed top-4 right-4 z-50">
+      <div className="fixed top-4 right-4 z-[9999]">
         <button
           onClick={toggleMinimize}
-          className="bg-white border border-gray-200 rounded-full shadow-lg p-3 hover:bg-gray-50 transition-colors"
+          className="bg-white border border-gray-200 rounded-full shadow-xl p-3 hover:bg-gray-50 transition-all hover:scale-110 active:scale-95"
+          aria-label="Open notification settings"
+          title="Notification Settings"
         >
           <Bell className={`w-5 h-5 ${isEnabled ? 'text-green-500' : 'text-gray-500'}`} />
         </button>
@@ -240,10 +205,12 @@ export default function NotificationManager() {
   // Closed state - show small toggle button
   if (!isOpen) {
     return (
-      <div className="fixed top-4 right-4 z-50">
+      <div className="fixed top-4 right-4 z-[9999]">
         <button
           onClick={toggleOpen}
-          className="bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-full shadow-lg p-3 hover:from-purple-600 hover:to-pink-600 transition-colors"
+          className="bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-full shadow-xl p-3 hover:from-purple-600 hover:to-pink-600 transition-all hover:scale-110 active:scale-95"
+          aria-label="Open notification settings"
+          title="Notification Settings"
         >
           <Bell className="w-5 h-5" />
         </button>
@@ -253,7 +220,7 @@ export default function NotificationManager() {
 
   // Open state - show full manager
   return (
-    <div className="fixed top-4 right-4 z-50 bg-white border border-gray-200 rounded-lg shadow-xl max-w-xs w-full mx-4">
+    <div className="fixed top-4 right-4 z-[9999] bg-white border border-gray-200 rounded-lg shadow-xl max-w-xs w-full mx-4">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200">
         <div className="flex items-center gap-2">
@@ -281,7 +248,21 @@ export default function NotificationManager() {
 
       {/* Content */}
       <div className="p-4">
-        {permission === 'default' && (
+        {!isSupported && (
+          <div className="space-y-3">
+            <p className="text-gray-600 text-sm">
+              Notifications are not supported in this browser. Please use a modern browser like Chrome, Firefox, or Safari.
+            </p>
+            <button
+              onClick={closeManager}
+              className="w-full bg-gray-500 text-white py-2 rounded-lg text-sm font-semibold transition-colors hover:bg-gray-600"
+            >
+              Close
+            </button>
+          </div>
+        )}
+
+        {isSupported && permission === 'default' && (
           <div className="space-y-3">
             <p className="text-gray-600 text-sm">
               Enable notifications to get updates even when the app is closed, just like Instagram, Facebook, or WhatsApp.
@@ -314,7 +295,7 @@ export default function NotificationManager() {
           </div>
         )}
 
-        {permission === 'granted' && (
+        {isSupported && permission === 'granted' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-green-600 text-sm font-medium flex items-center gap-1">
@@ -329,69 +310,35 @@ export default function NotificationManager() {
               )}
             </div>
 
-            <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
-                {!isEnabled ? (
-                  <button
-                    onClick={startNotifications}
-                    className="bg-green-500 text-white py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors hover:bg-green-600"
-                  >
-                    <Play className="w-4 h-4" />
-                    Start (5s)
-                  </button>
-                ) : (
-                  <button
-                    onClick={stopNotifications}
-                    className="bg-red-500 text-white py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors hover:bg-red-600"
-                  >
-                    <Square className="w-4 h-4" />
-                    Stop
-                  </button>
-                )}
-
-                <button
-                  onClick={sendTestNotification}
-                  className="bg-blue-500 text-white py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors hover:bg-blue-600"
-                >
-                  <TestTube className="w-4 h-4" />
-                  Test
-                </button>
-              </div>
+            <div className="space-y-3">
+              <p className="text-gray-600 text-sm">
+                Notifications are enabled. You'll receive push notifications when sent from the backend.
+              </p>
 
               <button
-                onClick={sendBackgroundTest}
+                onClick={sendTestNotification}
                 className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors hover:from-purple-600 hover:to-pink-600"
               >
-                <Send className="w-4 h-4" />
-                Test Background (Works When App Closed)
+                <TestTube className="w-4 h-4" />
+                Send Test Notification (FCM)
               </button>
 
               {pushEnabled && (
                 <div className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded flex items-center gap-1">
                   <Zap className="w-3 h-3" />
-                  Background notifications enabled - Works like Instagram/Facebook/WhatsApp
-                  {/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) && (
-                    <span className="ml-1">(iOS/Mac supported)</span>
-                  )}
+                  Firebase Cloud Messaging (FCM) enabled - Ready to receive push notifications
                 </div>
               )}
-            </div>
 
-            <div className="flex items-center justify-between text-xs text-gray-500">
-              <span>
-                {isEnabled ? '🟢 Active every 5 seconds' : '⚫ Notifications stopped'}
-              </span>
-              <button
-                onClick={closeManager}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X className="w-3 h-3" />
-              </button>
+              <div className="text-xs text-gray-500">
+                <p>💡 Notifications are sent manually from the backend via Firebase Cloud Messaging.</p>
+                <p className="mt-1">Use the "Send Push Notification" button on the page to send notifications to all devices.</p>
+              </div>
             </div>
           </div>
         )}
 
-        {permission === 'denied' && (
+        {isSupported && permission === 'denied' && (
           <div className="space-y-3">
             <p className="text-red-600 text-sm">
               Notifications are blocked in your browser settings.

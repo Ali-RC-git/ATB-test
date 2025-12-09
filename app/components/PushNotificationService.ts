@@ -1,11 +1,20 @@
 // Push Notification Service for ATB Matchmaking
 // This service handles background notifications that work even when app is closed
+// Now integrated with Firebase Cloud Messaging (FCM) for Google push notifications
+
+import { 
+  initializeFirebase, 
+  getFCMToken, 
+  onMessageListener,
+  getFirebaseMessaging 
+} from '../lib/firebase';
 
 export class PushNotificationService {
   private static instance: PushNotificationService;
   private registration: ServiceWorkerRegistration | null = null;
   private subscription: PushSubscription | null = null;
-  private backgroundCheckInterval: NodeJS.Timeout | null = null;
+  private fcmToken: string | null = null;
+  private fcmInitialized: boolean = false;
 
   private constructor() {}
 
@@ -39,6 +48,22 @@ export class PushNotificationService {
       return false;
     }
 
+    // Initialize Firebase Cloud Messaging
+    try {
+      initializeFirebase();
+      const messaging = getFirebaseMessaging();
+      if (messaging) {
+        this.fcmInitialized = true;
+        console.log('✅ Firebase Cloud Messaging initialized');
+        
+        // Set up foreground message listener
+        this.setupForegroundMessageListener();
+      }
+    } catch (error) {
+      console.warn('Firebase initialization failed, continuing with basic notifications:', error);
+      this.fcmInitialized = false;
+    }
+
     // iOS and Mac Safari have limited service worker support
     const isIOSDevice = this.isIOS();
     const isMacDevice = this.isMac();
@@ -69,8 +94,7 @@ export class PushNotificationService {
         this.subscription = null;
       }
       
-      // Start background notification checker (works on iOS when app is installed)
-      this.startBackgroundNotificationChecker();
+      // No automatic background notifications - only FCM push notifications from backend
       
       return true;
     } catch (error) {
@@ -78,6 +102,43 @@ export class PushNotificationService {
       // Still return true for iOS/Mac - basic notifications can work
       return (isIOSDevice || isMacDevice);
     }
+  }
+
+  // Set up listener for foreground FCM messages
+  private setupForegroundMessageListener(): void {
+    if (!this.fcmInitialized) return;
+
+    onMessageListener()
+      .then((payload) => {
+        console.log('📨 FCM Message received in foreground:', payload);
+        
+        // Show notification for foreground messages
+        const notificationTitle = payload.notification?.title || 'ATB Matchmaking';
+        const notificationBody = payload.notification?.body || 'You have a new notification';
+        const notificationIcon = payload.notification?.icon || '/heart.png';
+        
+        if (this.registration) {
+          this.registration.showNotification(notificationTitle, {
+            body: notificationBody,
+            icon: notificationIcon,
+            badge: '/heart.png',
+            vibrate: [200, 100, 200],
+            data: {
+              ...payload.data,
+              url: payload.data?.url || payload.fcmOptions?.link || '/',
+            },
+            tag: 'fcm-foreground-notification',
+          });
+        } else if (Notification.permission === 'granted') {
+          new Notification(notificationTitle, {
+            body: notificationBody,
+            icon: '/heart.png',
+          });
+        }
+      })
+      .catch((error) => {
+        console.error('Error in FCM message listener:', error);
+      });
   }
 
   async requestPermission(): Promise<NotificationPermission> {
@@ -95,6 +156,20 @@ export class PushNotificationService {
     if (permission === 'granted') {
       console.log('✅ Notification permission granted');
       
+      // Initialize Firebase and get FCM token if available
+      if (this.fcmInitialized || getFirebaseMessaging()) {
+        try {
+          this.fcmToken = await getFCMToken();
+          if (this.fcmToken) {
+            console.log('✅ FCM Token obtained:', this.fcmToken);
+            // Automatically register token with backend
+            await this.sendTokenToServer(this.fcmToken);
+          }
+        } catch (error) {
+          console.warn('Failed to get FCM token:', error);
+        }
+      }
+      
       // For iOS/Mac Safari, notifications work through service worker when app is installed
       if (isIOSDevice || (isMacDevice && isSafariBrowser)) {
         console.log('📱 iOS/Mac Safari: Notifications will work when app is added to home screen');
@@ -103,7 +178,7 @@ export class PushNotificationService {
         if ('serviceWorker' in navigator) {
           try {
             this.registration = await navigator.serviceWorker.ready;
-            this.startBackgroundNotificationChecker();
+            // No automatic background notifications - only FCM push notifications
           } catch (error) {
             console.log('Service worker initialization failed on iOS/Mac:', error);
           }
@@ -131,29 +206,31 @@ export class PushNotificationService {
       this.subscription = await this.registration.pushManager.getSubscription();
       
       if (this.subscription) {
+        console.log('✅ Already subscribed to push notifications');
         return this.subscription;
       }
 
-      // Create new subscription
-      // Note: For production, you'd need a VAPID key from your server
-      // For testing, we'll use a mock subscription
-      // For now, we'll skip the VAPID key and use service worker notifications instead
-      // This works on all platforms without requiring a backend server
-      
-      // Try to subscribe without VAPID key (works for testing)
+      // If FCM is initialized, FCM handles the subscription automatically
+      // The FCM token is what you need for sending push notifications
+      if (this.fcmInitialized && this.fcmToken) {
+        console.log('✅ Using FCM for push notifications');
+        return null; // FCM handles subscription internally
+      }
+
+      // Fallback: Try to create standard push subscription
+      // Note: This requires a VAPID key for production
       try {
         this.subscription = await this.registration.pushManager.subscribe({
           userVisibleOnly: true,
         });
+        console.log('✅ Standard push subscription created:', this.subscription);
+        return this.subscription;
       } catch (error) {
         // If subscription fails, we'll use service worker notifications
         // which work without VAPID keys
-        console.log('Push subscription without VAPID not supported, using service worker notifications');
+        console.log('Push subscription not supported, using service worker notifications');
         return null;
       }
-
-      console.log('✅ Push subscription created:', this.subscription);
-      return this.subscription;
     } catch (error) {
       console.error('Failed to subscribe to push:', error);
       // Fallback: Use service worker notifications
@@ -161,105 +238,68 @@ export class PushNotificationService {
     }
   }
 
-
-  // Start checking for background notifications
-  private startBackgroundNotificationChecker(): void {
-    if (!this.registration) return;
-
-    const isIOSDevice = this.isIOS();
-    const interval = isIOSDevice ? 30000 : 60000; // iOS: 30s, others: 60s
-
-    // Register background sync for periodic notifications
-    // This works even when the app is closed
-    if ('serviceWorker' in navigator && 'sync' in (this.registration as any)) {
-      // Use Background Sync API (works when app is closed)
-      try {
-        (this.registration as any).sync.register('background-notification-sync').catch((error: any) => {
-          console.log('Background sync registration failed:', error);
-        });
-      } catch (error) {
-        console.log('Background sync not available:', error);
+  // Get FCM token (for sending to backend server)
+  async getFCMToken(): Promise<string | null> {
+    if (!this.fcmInitialized) {
+      // Try to initialize Firebase
+      initializeFirebase();
+      const messaging = getFirebaseMessaging();
+      if (messaging) {
+        this.fcmInitialized = true;
+        this.setupForegroundMessageListener();
       }
     }
 
-    // Also set up a message channel to trigger background notifications from service worker
-    // This is critical for iOS - service worker needs explicit message to stay active
-    if (this.registration.active) {
-      // Send message to service worker to start background checking
-      this.registration.active.postMessage({
-        type: 'START_BACKGROUND_NOTIFICATIONS',
-        interval: interval,
-      });
-      console.log('📱 Started background notifications (iOS: ' + isIOSDevice + ', interval: ' + interval + 'ms)');
-    } else if (this.registration.waiting) {
-      // If active is null, try waiting service worker
-      this.registration.waiting.postMessage({
-        type: 'START_BACKGROUND_NOTIFICATIONS',
-        interval: interval,
-      });
-    } else if (this.registration.installing) {
-      // If installing, wait for it to activate
-      this.registration.installing.addEventListener('statechange', () => {
-        if (this.registration && this.registration.active) {
-          this.registration.active.postMessage({
-            type: 'START_BACKGROUND_NOTIFICATIONS',
-            interval: interval,
-          });
-        }
-      });
+    if (this.fcmToken) {
+      return this.fcmToken;
     }
-
-    // Fallback: Check periodically from client (only works when app is open)
-    // This helps keep service worker alive on iOS
-    this.backgroundCheckInterval = setInterval(async () => {
-      // On iOS, ping service worker to keep it alive
-      if (isIOSDevice && this.registration && this.registration.active) {
-        this.registration.active.postMessage({
-          type: 'KEEP_ALIVE',
-        });
-      }
-      await this.checkAndSendBackgroundNotification();
-    }, interval);
-  }
-
-  // Check if app is closed and send background notification
-  private async checkAndSendBackgroundNotification(): Promise<void> {
-    if (!this.registration) return;
 
     try {
-      // Send periodic background notification
-      // The service worker will handle checking if app is actually closed
-      const notifications = [
-        "💜 New matches waiting for you! Come back to connect.",
-        "💬 You have unread messages from counselors.",
-        "⭐ Someone viewed your profile while you were away.",
-        "🎯 New connection requests are waiting!",
-        "🔥 Don't miss out on potential matches!",
-      ];
-
-      const randomMessage = notifications[
-        Math.floor(Math.random() * notifications.length)
-      ];
-
-      // Send notification - service worker will only show if app is closed
-      await this.registration.showNotification('ATB Matchmaking', {
-        body: randomMessage,
-        icon: 'https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB',
-        badge: 'https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB',
-        tag: 'background-notification',
-        requireInteraction: false,
-        vibrate: [200, 100, 200],
-        data: {
-          url: '/',
-          timestamp: Date.now(),
-        },
-      } as NotificationOptions);
-
-      console.log('📱 Background notification sent');
+      this.fcmToken = await getFCMToken();
+      return this.fcmToken;
     } catch (error) {
-      console.error('Error checking background notifications:', error);
+      console.error('Failed to get FCM token:', error);
+      return null;
     }
   }
+
+  // Send FCM token to your backend server
+  // Automatically registers the token so it can receive push notifications
+  async sendTokenToServer(token: string, userId?: string): Promise<void> {
+    try {
+      const deviceInfo = typeof window !== 'undefined' 
+        ? `${navigator.userAgent} - ${navigator.platform}`
+        : 'Unknown device';
+
+      const response = await fetch('/api/notifications/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          token: token,
+          userId: userId,
+          deviceInfo: deviceInfo,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ FCM token registered successfully', {
+          tokenCount: data.tokenCount,
+        });
+      } else {
+        const error = await response.json();
+        console.error('Failed to register FCM token:', error.error);
+      }
+    } catch (error) {
+      console.error('Error registering FCM token:', error);
+    }
+  }
+
+
+  // Removed automatic background notification checker
+  // Notifications are now only sent via FCM push notifications from the backend
 
   // Send a test notification
   async sendTestNotification(): Promise<void> {
@@ -297,7 +337,7 @@ export class PushNotificationService {
 
       new Notification('ATB Matchmaking - Test', {
         body: randomMessage,
-        icon: 'https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB',
+        icon: '/heart.png',
         tag: 'test-notification',
       });
       return;
@@ -320,8 +360,8 @@ export class PushNotificationService {
 
     await this.registration.showNotification('ATB Matchmaking - Test', {
       body: randomMessage,
-      icon: 'https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB',
-      badge: 'https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB',
+      icon: '/heart.png',
+      badge: '/heart.png',
       tag: 'test-notification',
       requireInteraction: true,
       vibrate: [200, 100, 200],
@@ -351,7 +391,7 @@ export class PushNotificationService {
       if (!this.registration && Notification.permission === 'granted') {
         new Notification(title, {
           body: body,
-          icon: 'https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB',
+          icon: '/heart.png',
           tag: 'push-notification',
         });
         return;
@@ -369,8 +409,8 @@ export class PushNotificationService {
     // Send notification through service worker
     await this.registration.showNotification(title, {
       body: body,
-      icon: 'https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB',
-      badge: 'https://via.placeholder.com/192/8b5cf6/ffffff?text=ATB',
+      icon: '/heart.png',
+      badge: '/heart.png',
       tag: 'push-notification',
       requireInteraction: false,
       vibrate: [200, 100, 200],
@@ -381,24 +421,24 @@ export class PushNotificationService {
     } as NotificationOptions);
   }
 
-  // Stop background notifications
+  // Stop method (no longer needed for automatic notifications, but kept for compatibility)
   stop(): void {
-    if (this.backgroundCheckInterval) {
-      clearInterval(this.backgroundCheckInterval);
-      this.backgroundCheckInterval = null;
-    }
-    
-    // Also stop service worker background notifications
-    if (this.registration && this.registration.active) {
-      this.registration.active.postMessage({
-        type: 'STOP_BACKGROUND_NOTIFICATIONS',
-      });
-    }
+    // No automatic notifications to stop - all notifications are FCM push from backend
   }
 
   // Get subscription info
   async getSubscription(): Promise<PushSubscription | null> {
     return this.subscription;
+  }
+
+  // Check if FCM is initialized
+  isFCMInitialized(): boolean {
+    return this.fcmInitialized;
+  }
+
+  // Get current FCM token
+  getCurrentFCMToken(): string | null {
+    return this.fcmToken;
   }
 }
 
