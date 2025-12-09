@@ -128,7 +128,7 @@ export class PushNotificationService {
               url: payload.data?.url || payload.fcmOptions?.link || '/',
             },
             tag: 'fcm-foreground-notification',
-          });
+          } as NotificationOptions);
         } else if (Notification.permission === 'granted') {
           new Notification(notificationTitle, {
             body: notificationBody,

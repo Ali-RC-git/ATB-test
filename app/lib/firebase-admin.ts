@@ -7,6 +7,30 @@ import { getMessaging, Messaging } from 'firebase-admin/messaging';
 let adminApp: App | null = null;
 let adminMessaging: Messaging | null = null;
 
+// Load service account from file (runtime only, not during build)
+function loadServiceAccountFromFile(): any | null {
+  if (typeof window !== 'undefined') {
+    return null; // Client-side, can't load files
+  }
+
+  try {
+    // Use dynamic import to avoid build-time analysis
+    const fs = require('fs');
+    const path = require('path');
+    const serviceAccountPath = path.join(process.cwd(), 'serviceAccountKey.json');
+    
+    if (fs.existsSync(serviceAccountPath)) {
+      const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
+      return JSON.parse(fileContent);
+    }
+  } catch (error) {
+    // File doesn't exist or can't be read - this is OK
+    return null;
+  }
+  
+  return null;
+}
+
 // Initialize Firebase Admin
 export function initializeFirebaseAdmin(): App | null {
   // Return existing app if already initialized
@@ -26,32 +50,34 @@ export function initializeFirebaseAdmin(): App | null {
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
   try {
+    let serviceAccount: any = null;
+
     if (serviceAccountJson) {
       // Use JSON string from environment variable
-      const serviceAccount = JSON.parse(serviceAccountJson);
-      adminApp = initializeApp({
-        credential: cert(serviceAccount),
-      });
+      serviceAccount = JSON.parse(serviceAccountJson);
     } else if (serviceAccountPath) {
-      // Use file path
-      const serviceAccount = require(serviceAccountPath);
-      adminApp = initializeApp({
-        credential: cert(serviceAccount),
-      });
-    } else {
-      // Try to load from default location
+      // Use file path from environment
       try {
-        const serviceAccount = require('../../serviceAccountKey.json');
-        adminApp = initializeApp({
-          credential: cert(serviceAccount),
-        });
+        const fs = require('fs');
+        const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
+        serviceAccount = JSON.parse(fileContent);
       } catch (error) {
-        console.error('❌ Firebase Admin: Service account not found');
-        console.error('   Set FIREBASE_SERVICE_ACCOUNT_JSON or FIREBASE_SERVICE_ACCOUNT_PATH');
-        console.error('   Or place serviceAccountKey.json in project root');
+        console.error('❌ Failed to load service account from path:', serviceAccountPath);
+        return null;
+      }
+    } else {
+      // Try to load from default location (runtime only)
+      serviceAccount = loadServiceAccountFromFile();
+      if (!serviceAccount) {
+        // No service account found - this is OK, will return null
         return null;
       }
     }
+
+    // Initialize with the service account
+    adminApp = initializeApp({
+      credential: cert(serviceAccount),
+    });
 
     console.log('✅ Firebase Admin initialized successfully');
     return adminApp;
